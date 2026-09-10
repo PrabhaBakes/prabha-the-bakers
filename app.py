@@ -222,15 +222,17 @@ def admin():
     <div class="two"><label>Brand name<input name="brand_name" value="{esc(st.get('brand_name'))}"></label><label>Footer tagline<input name="footer_tagline" value="{esc(st.get('footer_tagline'))}"></label></div>
     <div class="two"><label>Phone<input name="phone" value="{esc(st.get('phone'))}"></label><label>UPI ID<input name="upi_id" value="{esc(st.get('upi_id', ''))}" placeholder="example@upi"></label></div><div class="two"><label>UPI Name<input name="upi_name" value="{esc(st.get('upi_name', 'Prabha The Bakers'))}"></label><label>Gold/theme color<input name="gold" value="{esc(st.get('gold'))}"></label></div>
     <label>UPI QR image URL<input name="upi_qr" value="{esc(st.get('upi_qr', ''))}" placeholder="https://.../your-upi-qr.png"></label>
-    <form method="post" action="/admin/single-image/upi_qr" enctype="multipart/form-data"><label>Or upload your Google Pay / UPI QR image<input type="file" name="media" accept="image/*" required></label><button>Upload & use UPI QR</button></form>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="submit">Save main website changes</button></form>
+    <form method="post" action="/admin/clear-payment/upi_id" style="display:inline"><button type="submit" class="danger">Delete UPI ID</button></form>
+    <form method="post" action="/admin/clear-payment/upi_qr" style="display:inline"><button type="submit" class="danger">Delete QR</button></form></div>
+    <form method="post" action="/admin/single-image/upi_qr" enctype="multipart/form-data"><label>Upload your Google Pay / UPI QR image<input type="file" name="media" accept="image/*" required></label><button>Upload & use UPI QR</button></form>
     <div class="two"><label>Hero small heading<input name="hero_eyebrow" value="{esc(st.get('hero_eyebrow'))}"></label><label>Hero main heading<input name="hero_title" value="{esc(st.get('hero_title'))}"></label></div>
     <label>Hero points — separate with |<input name="hero_points" value="{esc(' | '.join(st.get('hero_points',[])))}"></label>
     <label>Hero description<textarea name="hero_description">{esc(st.get('hero_description'))}</textarea></label>
     <label>Hero image URL<input name="hero_image" value="{esc(st.get('hero_image'))}"></label>
     <form method="post" action="/admin/single-image/hero_image" enctype="multipart/form-data"><label>Or upload new hero image<input type="file" name="media" accept="image/*" required></label><button>Upload hero image</button></form>
     <label>Website background image URL<input name="background_image" value="{esc(st.get('background_image'))}"></label>
-    <form method="post" action="/admin/single-image/background_image" enctype="multipart/form-data"><label>Or upload new background image<input type="file" name="media" accept="image/*" required></label><button>Upload background</button></form>
-    <button type="submit">Save main website changes</button></form></div>
+    <form method="post" action="/admin/single-image/background_image" enctype="multipart/form-data"><label>Or upload new background image<input type="file" name="media" accept="image/*" required></label><button>Upload background</button></form></div>
 
     <div class="box"><h2>2. Products — edit image, name, price, badge, rating</h2><form method="post" action="/admin/products"><div class="products">{''.join(product_forms)}</div><button>Save all product changes</button></form></div>
 
@@ -299,6 +301,26 @@ def admin_product_image(index):
     url=save_uploaded_image(f"product_{index}", request.files.get("media"))
     if not url: return "Invalid image file. Use PNG/JPG/JPEG/WEBP/GIF.", 400
     st["products"][index]["image"]=url
+    save_settings(st)
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/clear-payment/<kind>", methods=["POST"])
+def admin_clear_payment(kind):
+    if not require_admin(): return redirect(url_for("admin"))
+    st=load_settings()
+    if kind == "upi_id":
+        st["upi_id"] = ""
+    elif kind == "upi_qr":
+        old = str(st.get("upi_qr") or "")
+        if old.startswith("/uploads/"):
+            try:
+                os.remove(os.path.join(UPLOAD_DIR, old.rsplit("/",1)[-1]))
+            except OSError:
+                pass
+        st["upi_qr"] = ""
+    else:
+        return "Invalid payment setting", 400
     save_settings(st)
     return redirect(url_for("admin"))
 

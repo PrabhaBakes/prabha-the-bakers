@@ -95,7 +95,7 @@ def admin():
     <input type="text" name="title" placeholder="Title (optional)"><input type="file" name="media" accept="image/*,video/*" required><button>Upload</button></form>
     <p>Images: PNG/JPG/JPEG/WEBP/GIF - Videos: MP4/WEBM/MOV</p></div>
     <div class="box"><h2>Current uploads</h2>{}</div>
-    <p><a href="/" style="color:#f4c65d">View website</a> - <a href="/admin/logout" style="color:#f4c65d">Logout</a></p></div></body></html>""".format(items)
+    <p><a href="/" style="color:#f4c65d">View website</a> - <a href="/admin/logout" style="color:#f4c65d">Logout</a></p></div></body></html>""" + items
 
 @app.route("/admin/upload", methods=["POST"])
 def admin_upload():

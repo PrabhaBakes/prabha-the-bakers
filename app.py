@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request, redirect, url_for, session, send_from_directory
 import os
-import json
 import re
+import json
 try:
     import razorpay
 except ImportError:
@@ -12,6 +12,7 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-secret-in-production
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 MEDIA_FILE = os.path.join(os.path.dirname(__file__), "media.json")
+SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "site_settings.json")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_IMAGE = {"png", "jpg", "jpeg", "webp", "gif"}
 ALLOWED_VIDEO = {"mp4", "webm", "mov"}
@@ -44,6 +45,121 @@ razorpay_client = (
     else None
 )
 
+
+DEFAULT_SETTINGS = {
+    "brand_name": "Prabha The Bakers",
+    "tagline": "Freshly Baked, Always Loved",
+    "phone": "8869946488",
+    "hero_eyebrow": "Welcome to",
+    "hero_title": "Prabha The Bakers",
+    "hero_points": ["Freshly Baked", "Premium Quality", "Made with Love"],
+    "hero_description": "From delicious cakes to mouth-watering pastries, cookies, breads and more — we bring happiness in every bite.",
+    "hero_image": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=1200&q=90",
+    "background_image": "https://images.unsplash.com/photo-1517433670267-08bbd4be890f?auto=format&fit=crop&w=2200&q=90",
+    "story_image": "https://images.unsplash.com/photo-1556910103-1c02745aae4d?auto=format&fit=crop&w=1000&q=85",
+    "story_eyebrow": "Our Story",
+    "story_title": "Every celebration deserves something special.",
+    "story_text": "At Prabha The Bakers, we believe every celebration deserves something special. What started as a small dream has grown into a place where love, creativity and the art of baking come together.",
+    "gallery": [
+        "https://images.unsplash.com/photo-1571115177098-24ec42ed204d?auto=format&fit=crop&w=500&q=80",
+        "https://images.unsplash.com/photo-1621303837174-89787a7d4729?auto=format&fit=crop&w=500&q=80",
+        "https://images.unsplash.com/photo-1558301211-0d8c8d6a3b0f?auto=format&fit=crop&w=500&q=80",
+        "https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&w=500&q=80"
+    ],
+    "video_image": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&w=1000&q=85",
+    "video_title": "Cake<br>Making<br><em>Magic ♡</em>",
+    "trust": ["Fresh & Natural Ingredients", "Hygienic Preparation", "On-Time Delivery", "100% Customer Satisfaction"],
+    "footer_tagline": "Freshly Baked, Always Loved",
+    "gold": "#f4c65d",
+    "advanced_css": ""
+}
+
+
+def load_settings():
+    data = {}
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+    merged = dict(DEFAULT_SETTINGS)
+    merged.update(data if isinstance(data, dict) else {})
+    # Keep products separately editable and migrate defaults from PRODUCTS.
+    default_products = [
+        {"name":n,"price":p,"old_price":op,"rating":r,"reviews":rv,"tag":t,"image":u}
+        for n,p,op,r,rv,t,u in PRODUCTS
+    ]
+    products = merged.get("products")
+    if not isinstance(products, list) or len(products) != len(default_products):
+        products = default_products
+    merged["products"] = products
+    return merged
+
+
+def save_settings(data):
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def esc(v):
+    return html.escape(str(v or ""), quote=True)
+
+
+def build_product_cards(products):
+    cards=[]
+    for p in products:
+        name=esc(p.get("name","Product")); price=esc(p.get("price",0)); old=esc(p.get("old_price",0))
+        rating=esc(p.get("rating","5.0")); reviews=esc(p.get("reviews","0")); tag=esc(p.get("tag","FRESH")); image=esc(p.get("image",""))
+        cards.append(f'<article class="product-card" data-name="{name.lower()}"><div class="product-image"><img src="{image}" alt="{name}" loading="lazy"><span class="tag">{tag}</span></div><h3>{name}</h3><div class="price"><b>₹{price}</b> <del>₹{old}</del></div><div class="rating">★ {rating} <span>({reviews})</span></div><button class="add-cart" data-product="{name}" data-price="{price}">🛒 Add to Cart</button></article>')
+    return "".join(cards)
+
+
+def build_page(settings, media_html):
+    page = PAGE
+    page = page.replace('url("https://images.unsplash.com/photo-1517433670267-08bbd4be890f?auto=format&fit=crop&w=2200&q=90")', 'url("' + esc(settings.get("background_image")) + '")')
+    hero_start = page.find('<section class="hero" id="home">')
+    hero_end = page.find('</section>\n\n<section class="glass-panel">', hero_start)
+    if hero_start >= 0 and hero_end >= 0:
+        pts=settings.get("hero_points", ["Freshly Baked","Premium Quality","Made with Love"])
+        pts_html = '<b>•</b>'.join(' <span>'+esc(x)+'</span> ' for x in pts)
+        # Keep exactly two separators for the default, but support any count.
+        pts_html = ' <b>•</b> '.join('<span>'+esc(x)+'</span>' for x in pts)
+        hero = f'''<section class="hero" id="home">\n  <div class="hero-content">\n    <div class="eyebrow">{esc(settings.get("hero_eyebrow"))}</div>\n    <h1>{esc(settings.get("hero_title"))}</h1>\n    <div class="hero-points">{pts_html}</div>\n    <p>{esc(settings.get("hero_description"))}</p>\n    <div class="hero-buttons">\n      <a class="gold-btn" href="#products">▣ &nbsp; Explore Our Menu</a>\n      <a class="outline-btn" href="#videos">▶ &nbsp; Watch Our Video</a>\n    </div>\n  </div>\n  <div class="hero-cake">\n    <div class="cake-card">\n      <img src="{esc(settings.get("hero_image"))}" alt="{esc(settings.get("hero_title"))}">\n    </div>\n  </div>\n</section>'''
+        page = page[:hero_start] + hero + page[hero_end:]
+
+    # Replace product grid.
+    pg_start=page.find('<div class="product-grid" id="productGrid">')
+    pg_end=page.find('\n  </div>\n</section>\n\n<section class="lower-grid">', pg_start)
+    if pg_start>=0 and pg_end>=0:
+        page=page[:pg_start] + '<div class="product-grid" id="productGrid">' + build_product_cards(settings["products"]) + page[pg_end:]
+
+    lower_start=page.find('<section class="lower-grid">')
+    lower_end=page.find('</section>\n\n<section class="trust-bar"', lower_start)
+    if lower_start>=0 and lower_end>=0:
+        g=settings.get("gallery",[])
+        while len(g)<4: g.append("")
+        lower=f'''<section class="lower-grid">\n  <div class="story image-box">\n    <img src="{esc(settings.get("story_image"))}" alt="Baker preparing fresh dough">\n  </div>\n  <div class="story copy" id="about">\n    <div class="eyebrow small">{esc(settings.get("story_eyebrow"))}</div>\n    <h2>{esc(settings.get("story_title"))}</h2>\n    <p>{esc(settings.get("story_text"))}</p>\n    <a class="gold-btn small-btn" href="#contact">Learn More →</a>\n  </div>\n  <div class="gallery-box" id="gallery">\n    <div class="mini-head"><div><h3>Daily Gallery</h3><p>A glimpse of our fresh creations.</p></div><a href="#gallery">View All →</a></div>\n    <div class="gallery">\n      <img src="{esc(g[0])}" alt="Gallery image 1">\n      <img src="{esc(g[1])}" alt="Gallery image 2">\n      <img src="{esc(g[2])}" alt="Gallery image 3">\n      <img src="{esc(g[3])}" alt="Gallery image 4">\n    </div>\n  </div>\n  <div class="video-box" id="videos">\n    <div class="mini-head"><div><h3>Watch Our Videos</h3><p>Behind the scenes & social moments.</p></div><a href="#videos">View All →</a></div>\n    <div class="video-cover">\n      <img src="{esc(settings.get("video_image"))}" alt="Cake making">\n      <button class="play">▶</button>\n      <div class="video-title">{settings.get("video_title","")}</div>\n    </div>\n  </div>\n</section>'''
+        page=page[:lower_start]+lower+page[lower_end:]
+
+    # Trust bar and footer contact/tagline.
+    trust_start=page.find('<section class="trust-bar" id="contact">')
+    trust_end=page.find('</section>', trust_start)
+    if trust_start>=0 and trust_end>=0:
+        tr=settings.get("trust",[])
+        icons=['♧','♢','▣','♡']
+        trust='\n'.join(f'  <div>{icons[i%4]} <span>{esc(x)}</span></div>' for i,x in enumerate(tr))
+        page=page[:trust_start]+'<section class="trust-bar" id="contact">\n'+trust+'\n'+page[trust_end:]
+    page=page.replace('<b>Prabha The Bakers</b><span>Freshly Baked, Always Loved</span>', '<b>'+esc(settings.get("brand_name"))+ '</b><span>'+esc(settings.get("footer_tagline"))+ '</span>')
+    phone=esc(settings.get("phone"))
+    page=re.sub(r'tel:[^"\']+', 'tel:'+phone, page, count=1)
+    page=re.sub(r'wa\.me/\d+', 'wa.me/91'+re.sub(r'\D','',str(settings.get("phone",""))), page, count=1)
+    page=re.sub(r'📞 <a href="tel:[^"]+">[^<]+</a>', '📞 <a href="tel:'+phone+'">'+phone+'</a>', page, count=1)
+    if settings.get('gold'):
+        page=page.replace('--gold:#f4c65d', '--gold:'+esc(settings['gold']))
+    if settings.get('advanced_css'):
+        page=page.replace('</style></head>', esc(settings['advanced_css']).replace('&quot;','"') + '</style></head>')
+    return page.replace("{{MEDIA_HTML}}", media_html)
+
 # PRABHA THE BAKERS - PYTHON ONLY SOURCE
 # Complete website UI is embedded in this single Python file.
 # No HTML/CSS/JS/template/static source files are required.
@@ -60,11 +176,11 @@ def home():
         url = "/uploads/" + item["filename"]
         title = item.get("title", "")
         if item["type"] == "video":
-            cards.append('<div style="background:#111;border-radius:18px;overflow:hidden"><video src="' + url + '" controls style="width:100%;display:block;max-height:420px"></video><div style="padding:12px;color:#fff">' + title + '</div></div>')
+            cards.append('<div style="background:#111;border-radius:18px;overflow:hidden"><video src="' + url + '" controls style="width:100%;display:block;max-height:420px"></video><div style="padding:12px;color:#fff">' + esc(title) + '</div></div>')
         else:
-            cards.append('<div style="background:#111;border-radius:18px;overflow:hidden"><img src="' + url + '" alt="' + title + '" style="width:100%;display:block;max-height:420px;object-fit:cover"><div style="padding:12px;color:#fff">' + title + '</div></div>')
+            cards.append('<div style="background:#111;border-radius:18px;overflow:hidden"><img src="' + url + '" alt="' + esc(title) + '" style="width:100%;display:block;max-height:420px;object-fit:cover"><div style="padding:12px;color:#fff">' + esc(title) + '</div></div>')
     media_html = "".join(cards) if cards else "<p style='opacity:.7'>No daily updates yet.</p>"
-    return PAGE.replace("{{MEDIA_HTML}}", media_html)
+    return build_page(load_settings(), media_html)
 
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
@@ -81,22 +197,151 @@ def admin():
             return redirect(url_for("admin"))
         return "<h2>Wrong password</h2><p><a href='/admin'>Try again</a></p>", 401
     if not admin_ok():
-        return """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin Login</title>
+        return '''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin Login</title>
         <style>body{font-family:Arial;background:#111;color:#fff;display:grid;place-items:center;min-height:100vh}.box{background:#1d1d1d;padding:30px;border-radius:18px;width:min(90%,420px)}input,button{width:100%;padding:14px;margin-top:12px;border-radius:10px;border:0}button{background:#f4c65d;cursor:pointer;font-weight:700}</style></head>
-        <body><div class="box"><h1>Prabha The Bakers</h1><p>Admin Login</p><form method="post"><input type="password" name="password" placeholder="Admin password" required><button>Login</button></form></div></body></html>"""
-    media = load_media()
-    rows = []
-    for idx, item in enumerate(media):
-        rows.append('<div class="item"><b>{}</b> - {} <form method="post" action="/admin/delete/{}" style="display:inline"><button>Delete</button></form></div>'.format(item.get("title","Untitled"), item["type"], idx))
-    items = "".join(rows) or "<p>No uploads yet.</p>"
-    return """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Prabha The Bakers Admin</title>
-    <style>body{font-family:Arial;background:#111;color:#fff;padding:25px}.wrap{max-width:850px;margin:auto}.box{background:#1d1d1d;padding:22px;border-radius:18px;margin:18px 0}input,button{padding:12px;margin:7px 0;border-radius:9px;border:0}input[type=file],input[type=text]{width:100%;box-sizing:border-box}button{background:#f4c65d;font-weight:700;cursor:pointer}.item{padding:12px;border-bottom:1px solid #333}</style></head>
-    <body><div class="wrap"><h1>Prabha The Bakers - Admin</h1>
-    <div class="box"><h2>Upload daily image/video</h2><form method="post" action="/admin/upload" enctype="multipart/form-data">
-    <input type="text" name="title" placeholder="Title (optional)"><input type="file" name="media" accept="image/*,video/*" required><button>Upload</button></form>
-    <p>Images: PNG/JPG/JPEG/WEBP/GIF - Videos: MP4/WEBM/MOV</p></div>
-    <div class="box"><h2>Current uploads</h2>{}</div>
-    <p><a href="/" style="color:#f4c65d">View website</a> - <a href="/admin/logout" style="color:#f4c65d">Logout</a></p></div></body></html>""" + items
+        <body><div class="box"><h1>Prabha The Bakers</h1><p>Admin Login</p><form method="post"><input type="password" name="password" placeholder="Admin password" required><button>Login</button></form></div></body></html>'''
+    st=load_settings()
+    media=load_media()
+    products=st["products"]
+    product_forms=[]
+    for i,p in enumerate(products):
+        product_forms.append(f'''<div class="product"><h3>Product {i+1}</h3>
+        <label>Name<input name="p_name_{i}" value="{esc(p.get('name'))}"></label>
+        <div class="two"><label>Price<input name="p_price_{i}" value="{esc(p.get('price'))}" type="number"></label><label>Old price<input name="p_old_{i}" value="{esc(p.get('old_price'))}" type="number"></label></div>
+        <div class="two"><label>Rating<input name="p_rating_{i}" value="{esc(p.get('rating'))}"></label><label>Reviews<input name="p_reviews_{i}" value="{esc(p.get('reviews'))}"></label></div>
+        <label>Badge<input name="p_tag_{i}" value="{esc(p.get('tag'))}"></label>
+        <label>Image URL<input name="p_image_{i}" value="{esc(p.get('image'))}"></label>
+        <p class="hint">For a local uploaded image, use the product image upload button below.</p>
+        <form method="post" action="/admin/product-image/{i}" enctype="multipart/form-data"><input type="file" name="media" accept="image/*" required><button>Upload & use this image</button></form>
+        </div>''')
+    media_rows=[]
+    for idx,item in enumerate(media):
+        media_rows.append(f'<div class="item"><b>{esc(item.get("title") or "Untitled")}</b> — {esc(item.get("type"))} <form method="post" action="/admin/delete/{idx}" style="display:inline"><button class="danger">Delete</button></form></div>')
+    return f'''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Prabha The Bakers — Website Manager</title>
+    <style>
+    body{{font-family:Arial,sans-serif;background:#0c0a08;color:#fff;margin:0;padding:24px}}.wrap{{max-width:1100px;margin:auto}}h1,h2,h3{{font-family:Georgia,serif}}.box{{background:#18130e;border:1px solid #3a2b1a;padding:22px;border-radius:18px;margin:18px 0}}label{{display:block;font-size:13px;color:#ddd;margin:10px 0}}input,textarea{{width:100%;box-sizing:border-box;padding:11px;border-radius:9px;border:1px solid #493820;background:#0d0b09;color:#fff;margin-top:6px}}textarea{{min-height:90px;resize:vertical}}button{{padding:11px 15px;border:0;border-radius:9px;background:#f4c65d;color:#15100a;font-weight:700;cursor:pointer;margin-top:8px}}.danger{{background:#9d3f35;color:#fff}}.two{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}.products{{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}}.product{{background:#0f0c09;padding:15px;border:1px solid #3a2b1a;border-radius:14px}}.hint{{font-size:11px;color:#aaa}}.item{{padding:12px 0;border-bottom:1px solid #33291e}}.links a{{color:#f4c65d;margin-right:15px}}small{{color:#aaa}}@media(max-width:700px){{.products,.two{{grid-template-columns:1fr}}}}
+    </style></head><body><div class="wrap"><h1>Prabha The Bakers — Website Manager</h1><p><small>Change website content, product details, images, gallery, theme and daily uploads without editing Python code.</small></p>
+    <div class="box"><h2>1. Main website</h2><form method="post" action="/admin/settings">
+    <div class="two"><label>Brand name<input name="brand_name" value="{esc(st.get('brand_name'))}"></label><label>Footer tagline<input name="footer_tagline" value="{esc(st.get('footer_tagline'))}"></label></div>
+    <div class="two"><label>Phone<input name="phone" value="{esc(st.get('phone'))}"></label><label>Gold/theme color<input name="gold" value="{esc(st.get('gold'))}"></label></div>
+    <div class="two"><label>Hero small heading<input name="hero_eyebrow" value="{esc(st.get('hero_eyebrow'))}"></label><label>Hero main heading<input name="hero_title" value="{esc(st.get('hero_title'))}"></label></div>
+    <label>Hero points — separate with |<input name="hero_points" value="{esc(' | '.join(st.get('hero_points',[])))}"></label>
+    <label>Hero description<textarea name="hero_description">{esc(st.get('hero_description'))}</textarea></label>
+    <label>Hero image URL<input name="hero_image" value="{esc(st.get('hero_image'))}"></label>
+    <form method="post" action="/admin/single-image/hero_image" enctype="multipart/form-data"><label>Or upload new hero image<input type="file" name="media" accept="image/*" required></label><button>Upload hero image</button></form>
+    <label>Website background image URL<input name="background_image" value="{esc(st.get('background_image'))}"></label>
+    <form method="post" action="/admin/single-image/background_image" enctype="multipart/form-data"><label>Or upload new background image<input type="file" name="media" accept="image/*" required></label><button>Upload background</button></form>
+    <button type="submit">Save main website changes</button></form></div>
+
+    <div class="box"><h2>2. Products — edit image, name, price, badge, rating</h2><form method="post" action="/admin/products"><div class="products">{''.join(product_forms)}</div><button>Save all product changes</button></form></div>
+
+    <div class="box"><h2>3. Our Story</h2><form method="post" action="/admin/story"><label>Heading<input name="story_eyebrow" value="{esc(st.get('story_eyebrow'))}"></label><label>Title<input name="story_title" value="{esc(st.get('story_title'))}"></label><label>Story text<textarea name="story_text">{esc(st.get('story_text'))}</textarea></label><label>Image URL<input name="story_image" value="{esc(st.get('story_image'))}"></label><button>Save story</button></form><form method="post" action="/admin/single-image/story_image" enctype="multipart/form-data"><input type="file" name="media" accept="image/*" required><button>Upload & use story image</button></form></div>
+
+    <div class="box"><h2>4. Gallery</h2><form method="post" action="/admin/gallery">{''.join(f'<label>Gallery image {i+1} URL<input name="g{i}" value="{esc(st.get("gallery",["","","",""])[i])}"></label>' for i in range(4))}<button>Save gallery</button></form></div>
+
+    <div class="box"><h2>5. Video section</h2><form method="post" action="/admin/video"><label>Video cover image URL<input name="video_image" value="{esc(st.get('video_image'))}"></label><label>Video title (HTML allowed for line breaks/emphasis)<input name="video_title" value="{esc(st.get('video_title'))}"></label><button>Save video section</button></form><form method="post" action="/admin/single-image/video_image" enctype="multipart/form-data"><input type="file" name="media" accept="image/*" required><button>Upload & use video cover</button></form></div>
+
+    <div class="box"><h2>6. Trust bar</h2><form method="post" action="/admin/trust">{''.join(f'<label>Item {i+1}<input name="t{i}" value="{esc(st.get("trust",["","","",""])[i])}"></label>' for i in range(4))}<button>Save trust bar</button></form></div>
+
+    <div class="box"><h2>7. Daily photos/videos</h2><form method="post" action="/admin/upload" enctype="multipart/form-data"><label>Title<input type="text" name="title" placeholder="Title (optional)"></label><input type="file" name="media" accept="image/*,video/*" required><button>Upload daily image/video</button></form><p><small>Images: PNG/JPG/JPEG/WEBP/GIF — Videos: MP4/WEBM/MOV</small></p>{''.join(media_rows) if media_rows else '<p>No uploads yet.</p>'}</div>
+
+    <div class="box links"><a href="/" target="_blank">View website</a><a href="/admin/logout">Logout</a></div>
+    </div></body></html>'''
+def require_admin():
+    return admin_ok()
+
+
+def save_uploaded_image(slot, f):
+    if not f or not f.filename:
+        return None
+    original = f.filename.replace("\\","/").split("/")[-1]
+    if not ext_ok(original, ALLOWED_IMAGE):
+        return None
+    import uuid
+    filename = "site_" + slot + "_" + uuid.uuid4().hex + "_" + re.sub(r"[^A-Za-z0-9._-]", "_", original)
+    f.save(os.path.join(UPLOAD_DIR, filename))
+    return "/uploads/" + filename
+
+
+@app.route("/admin/settings", methods=["POST"])
+def admin_settings():
+    if not require_admin(): return redirect(url_for("admin"))
+    st=load_settings()
+    for k in ["brand_name","tagline","phone","hero_eyebrow","hero_title","hero_description","hero_image","background_image","footer_tagline","gold"]:
+        st[k]=request.form.get(k, st.get(k,"" )).strip()
+    st["hero_points"]=[x.strip() for x in request.form.get("hero_points","").split("|") if x.strip()]
+    save_settings(st)
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/products", methods=["POST"])
+def admin_products():
+    if not require_admin(): return redirect(url_for("admin"))
+    st=load_settings()
+    products=st["products"]
+    for i,p in enumerate(products):
+        p["name"]=request.form.get(f"p_name_{i}",p.get("name","")).strip()
+        p["price"]=request.form.get(f"p_price_{i}",p.get("price",0)).strip()
+        p["old_price"]=request.form.get(f"p_old_{i}",p.get("old_price",0)).strip()
+        p["rating"]=request.form.get(f"p_rating_{i}",p.get("rating","5.0")).strip()
+        p["reviews"]=request.form.get(f"p_reviews_{i}",p.get("reviews","0")).strip()
+        p["tag"]=request.form.get(f"p_tag_{i}",p.get("tag","FRESH")).strip()
+        p["image"]=request.form.get(f"p_image_{i}",p.get("image","")).strip()
+    st["products"]=products
+    save_settings(st)
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/product-image/<int:index>", methods=["POST"])
+def admin_product_image(index):
+    if not require_admin(): return redirect(url_for("admin"))
+    st=load_settings()
+    if not (0 <= index < len(st["products"])): return "Invalid product", 400
+    url=save_uploaded_image(f"product_{index}", request.files.get("media"))
+    if not url: return "Invalid image file. Use PNG/JPG/JPEG/WEBP/GIF.", 400
+    st["products"][index]["image"]=url
+    save_settings(st)
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/single-image/<slot>", methods=["POST"])
+def admin_single_image(slot):
+    if not require_admin(): return redirect(url_for("admin"))
+    allowed={"hero_image","background_image","story_image","video_image"}
+    if slot not in allowed: return "Invalid image slot", 400
+    st=load_settings()
+    url=save_uploaded_image(slot, request.files.get("media"))
+    if not url: return "Invalid image file. Use PNG/JPG/JPEG/WEBP/GIF.", 400
+    st[slot]=url
+    save_settings(st)
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/story", methods=["POST"])
+def admin_story():
+    if not require_admin(): return redirect(url_for("admin"))
+    st=load_settings()
+    for k in ["story_eyebrow","story_title","story_text","story_image"]: st[k]=request.form.get(k,st.get(k,"")).strip()
+    save_settings(st); return redirect(url_for("admin"))
+
+
+@app.route("/admin/gallery", methods=["POST"])
+def admin_gallery():
+    if not require_admin(): return redirect(url_for("admin"))
+    st=load_settings(); st["gallery"]=[request.form.get(f"g{i}","").strip() for i in range(4)]; save_settings(st); return redirect(url_for("admin"))
+
+
+@app.route("/admin/video", methods=["POST"])
+def admin_video():
+    if not require_admin(): return redirect(url_for("admin"))
+    st=load_settings(); st["video_image"]=request.form.get("video_image",st.get("video_image","")).strip(); st["video_title"]=request.form.get("video_title",st.get("video_title","")).strip(); save_settings(st); return redirect(url_for("admin"))
+
+
+@app.route("/admin/trust", methods=["POST"])
+def admin_trust():
+    if not require_admin(): return redirect(url_for("admin"))
+    st=load_settings(); st["trust"]=[request.form.get(f"t{i}","").strip() for i in range(4)]; save_settings(st); return redirect(url_for("admin"))
+
 
 @app.route("/admin/upload", methods=["POST"])
 def admin_upload():

@@ -388,9 +388,9 @@ def create_order():
     total=0; clean_items=[]
     for item in items:
         name=str(item.get("name","" )).strip(); qty=max(1,int(item.get("qty",1)))
-        product=next((x for x in PRODUCTS if x["name"]==name),None)
+        product=next((x for x in PRODUCTS if x[0]==name),None)
         if not product:return jsonify({"error":f"Product not found: {name}"}),400
-        price=int(product["price"]); total+=price*qty; clean_items.append({"name":name,"qty":qty,"price":price})
+        price=int(product[1]); total+=price*qty; clean_items.append({"name":name,"qty":qty,"price":price})
     order_id="PTB-"+datetime.now().strftime("%Y%m%d%H%M%S")+"-"+uuid.uuid4().hex[:6].upper()
     settings=load_settings(); upi_id=str(settings.get("upi_id") or os.getenv("UPI_ID","")).strip(); upi_name=str(settings.get("upi_name") or os.getenv("UPI_NAME","Prabha The Bakers")).strip()
     if not upi_id:return jsonify({"error":"UPI ID is not configured. Open Admin → Website Settings and add your UPI ID."}),503
